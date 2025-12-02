@@ -2,15 +2,14 @@
 
 import random
 from dataclasses import dataclass, field
-from typing import List, Tuple, Dict, Optional
+from typing import List, Tuple, Optional
 
 from config import (
-    GRID_ROWS, GRID_COLS, GRID_ORIGIN_X, GRID_ORIGIN_Y, GRID_WIDTH, GRID_HEIGHT,
+    DEFAULT_GRID_ROWS, DEFAULT_GRID_COLS,
     DEFAULT_STEPS_PER_FRAME, MAX_STEPS_DEFAULT, MAX_SIMULATIONS_DEFAULT,
     INITIAL_AGENT_COUNT, MAX_AGENT_COUNT,
     MOVES
 )
-
 
 Pos = Tuple[int, int]
 Path = List[Pos]
@@ -27,13 +26,17 @@ class Agent:
 
 @dataclass
 class SimulationState:
+    # ukuran grid dinamis
+    rows: int = DEFAULT_GRID_ROWS
+    cols: int = DEFAULT_GRID_COLS
+
     # grid & costs
-    grid: List[List[int]] = field(default_factory=lambda: [[0 for _ in range(GRID_COLS)] for _ in range(GRID_ROWS)])
-    visit_counts: List[List[int]] = field(default_factory=lambda: [[0 for _ in range(GRID_COLS)] for _ in range(GRID_ROWS)])
-    cell_costs: List[List[int]] = field(default_factory=lambda: [[0 for _ in range(GRID_COLS)] for _ in range(GRID_ROWS)])
+    grid: List[List[int]] = field(default_factory=list)
+    visit_counts: List[List[int]] = field(default_factory=list)
+    cell_costs: List[List[int]] = field(default_factory=list)
 
     start: Pos = (0, 0)
-    goal: Pos = (GRID_ROWS - 1, GRID_COLS - 1)
+    goal: Pos = (DEFAULT_GRID_ROWS - 1, DEFAULT_GRID_COLS - 1)
 
     # sim settings
     agent_count: int = INITIAL_AGENT_COUNT
@@ -61,11 +64,18 @@ class SimulationState:
     first_step_after_reset: bool = True
 
     # cursor & cost editing
-    cursor_mode: str = "obstacle"  # "obstacle" atau "cost"
+    cursor_mode: str = "obstacle"
     current_cost_value: int = 1
 
+    # dipakai main.py untuk rebuild window/canvas
+    map_just_resized: bool = False
+
     def __post_init__(self):
-        # inisialisasi rintangan default
+        self._allocate_grids(self.rows, self.cols)
+
+        self.start = (0, 0)
+        self.goal = (self.rows - 1, self.cols - 1)
+
         obstacles = [
             (1, 1), (1, 2), (1, 3),
             (2, 3),
@@ -74,16 +84,34 @@ class SimulationState:
             (4, 1), (5, 1), (6, 1)
         ]
         for r, c in obstacles:
-            if 0 <= r < GRID_ROWS and 0 <= c < GRID_COLS:
+            if 0 <= r < self.rows and 0 <= c < self.cols:
                 self.grid[r][c] = 1
 
         self.reset_simulation()
+
+    # ---------- grid allocation / resize ----------
+
+    def _allocate_grids(self, rows: int, cols: int):
+        self.grid = [[0 for _ in range(cols)] for _ in range(rows)]
+        self.visit_counts = [[0 for _ in range(cols)] for _ in range(rows)]
+        self.cell_costs = [[0 for _ in range(cols)] for _ in range(rows)]
+
+    def resize_grid(self, rows: int, cols: int):
+        """Resize map dan reset simulasi."""
+        self.rows, self.cols = rows, cols
+        self._allocate_grids(rows, cols)
+
+        self.start = (0, 0)
+        self.goal = (rows - 1, cols - 1)
+
+        self.reset_simulation()
+        self.map_just_resized = True
 
     # ---------- basic utils ----------
 
     def increment_visit(self, pos: Pos):
         r, c = pos
-        if 0 <= r < GRID_ROWS and 0 <= c < GRID_COLS:
+        if 0 <= r < self.rows and 0 <= c < self.cols:
             self.visit_counts[r][c] += 1
 
     def create_agent(self) -> Agent:
@@ -103,7 +131,7 @@ class SimulationState:
             self.increment_visit(self.start)
 
     def reset_heatmap(self):
-        self.visit_counts = [[0 for _ in range(GRID_COLS)] for _ in range(GRID_ROWS)]
+        self.visit_counts = [[0 for _ in range(self.cols)] for _ in range(self.rows)]
 
     def reset_stats(self):
         self.best_path = None
@@ -135,28 +163,17 @@ class SimulationState:
         neighbors = []
         for dr, dc in MOVES:
             nr, nc = r + dr, c + dc
-            if 0 <= nr < GRID_ROWS and 0 <= nc < GRID_COLS:
+            if 0 <= nr < self.rows and 0 <= nc < self.cols:
                 if self.grid[nr][nc] == 0 and (nr, nc) not in agent.visited:
                     neighbors.append((nr, nc))
         return neighbors
 
     def get_cell_cost_value(self, r: int, c: int) -> float:
-        """
-        Mapping cost:
-        - 0 titik  -> 1.0
-        - 1 titik  -> 1.2
-        - 2 titik  -> 1.4
-        ...
-        - n titik  -> 1.0 + 0.2 * n
-        """
         dots = self.cell_costs[r][c]
         return 1.0 + 0.2 * dots
 
     def compute_path_cost(self, path: Path) -> float:
-        total = 0.0
-        for (r, c) in path:
-            total += self.get_cell_cost_value(r, c)
-        return total
+        return sum(self.get_cell_cost_value(r, c) for (r, c) in path)
 
     def handle_success(self, agent: Agent):
         path_len = len(agent.path)
@@ -166,25 +183,20 @@ class SimulationState:
         self.total_success_length += path_len
         self.total_success_cost += path_cost
 
-        # best path by minimal cost (tie => shorter length)
         if self.best_path is None:
             self.best_path = agent.path.copy()
             self.best_path_cost = path_cost
-            print(f"Jalur baru terbaik! Cost = {path_cost:.2f}, Panjang = {len(self.best_path)}")
         else:
             if (path_cost < self.best_path_cost - 1e-9) or \
                (abs(path_cost - self.best_path_cost) < 1e-9 and path_len < len(self.best_path)):
                 self.best_path = agent.path.copy()
                 self.best_path_cost = path_cost
-                print(f"Jalur baru terbaik! Cost = {path_cost:.2f}, Panjang = {len(self.best_path)}")
 
-        # min/max length
         if self.min_success_length is None or path_len < self.min_success_length:
             self.min_success_length = path_len
         if self.max_success_length is None or path_len > self.max_success_length:
             self.max_success_length = path_len
 
-        # min/max cost
         if self.min_success_cost is None or path_cost < self.min_success_cost:
             self.min_success_cost = path_cost
         if self.max_success_cost is None or path_cost > self.max_success_cost:
@@ -208,7 +220,6 @@ class SimulationState:
             agent.active = False
             return
 
-        # Monte Carlo: pure random neighbor
         next_pos = random.choice(neighbors)
         agent.pos = next_pos
         agent.path.append(next_pos)
@@ -234,7 +245,6 @@ class SimulationState:
         return True
 
     def step_frame(self):
-        """Jalankan satu frame simulasi (beberapa langkah tergantung steps_per_frame)."""
         if self.paused or self.simulation_done:
             return
 
@@ -258,14 +268,11 @@ class SimulationState:
 
             if self.sim_count >= self.max_simulations and all(not a.active for a in self.agents):
                 self.simulation_done = True
-                print("Simulasi selesai. Mencapai max_simulations.")
                 break
 
     # ---------- Interaksi grid (mouse) ----------
 
     def handle_grid_click(self, r: int, c: int, button: int):
-        """Dipanggil dari main saat klik di cell (r, c)."""
-        # left click
         if button == 1:
             if self.cursor_mode == "obstacle":
                 if (r, c) != self.start and (r, c) != self.goal:
@@ -279,13 +286,11 @@ class SimulationState:
                 if self.grid[r][c] == 0:
                     self.cell_costs[r][c] = max(0, min(9, self.current_cost_value))
 
-        # middle: set start
         elif button == 2:
             if (r, c) != self.goal:
                 self.start = (r, c)
                 self.reset_simulation()
 
-        # right: set goal
         elif button == 3:
             if (r, c) != self.start:
                 self.goal = (r, c)

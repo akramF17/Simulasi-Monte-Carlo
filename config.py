@@ -3,24 +3,14 @@
 # ================================
 # Konfigurasi dasar
 # ================================
-GRID_ROWS = 10
-GRID_COLS = 10
+DEFAULT_GRID_ROWS = 10
+DEFAULT_GRID_COLS = 10
+
 CELL_SIZE = 50
 MARGIN = 25
-
 GRID_ORIGIN_X = MARGIN
 GRID_ORIGIN_Y = MARGIN
-GRID_WIDTH  = GRID_COLS * CELL_SIZE
-GRID_HEIGHT = GRID_ROWS * CELL_SIZE
-
-SIDEBAR_WIDTH = 320  # panel kanan untuk UI
-
-# Tinggi panel (sidebar) dibuat lebih besar dari grid supaya UI muat
-PANEL_HEIGHT = GRID_HEIGHT + 260
-
-# Window height = cukup untuk muat grid & panel (ambil yang lebih tinggi)
-WINDOW_WIDTH  = GRID_WIDTH + 2 * MARGIN + SIDEBAR_WIDTH
-WINDOW_HEIGHT = max(GRID_HEIGHT, PANEL_HEIGHT) + 2 * MARGIN
+SIDEBAR_WIDTH = 320
 
 FPS = 30
 DEFAULT_STEPS_PER_FRAME = 1
